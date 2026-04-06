@@ -629,12 +629,12 @@ const resolveCommentMediaUrl = (
   comment: Pick<ProfileComment, "mediaPath" | "mediaURL">
 ) => {
   const mediaPath = typeof comment.mediaPath === "string" ? comment.mediaPath.trim() : "";
+  const mediaURL = typeof comment.mediaURL === "string" ? comment.mediaURL.trim() : "";
 
   if (mediaPath) {
-    return getSupabasePublicObjectUrl(mediaPath);
+    return getSupabasePublicObjectUrl(mediaPath) || mediaURL || null;
   }
 
-  const mediaURL = typeof comment.mediaURL === "string" ? comment.mediaURL.trim() : "";
   return mediaURL || null;
 };
 const COMMENT_RENDERABLE_IMAGE_MEDIA_TYPES = new Set([

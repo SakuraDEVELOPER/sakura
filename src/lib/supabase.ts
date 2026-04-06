@@ -36,6 +36,11 @@ export function getSupabasePublicObjectUrl(objectPath: string | null | undefined
     return null;
   }
 
+  // Legacy-safe: some records can store absolute URLs in mediaPath/avatarPath.
+  if (/^https?:\/\//i.test(normalizedPath)) {
+    return normalizedPath;
+  }
+
   const encodedPath = encodeStorageObjectPath(normalizedPath);
 
   if (supabasePublicObjectBaseUrl) {
@@ -65,6 +70,11 @@ export function getSupabaseRenderedImageUrl(
   const normalizedPath = normalizeStorageObjectPath(objectPath);
 
   if (!normalizedPath || !supabaseRenderedImageBaseUrl) {
+    return null;
+  }
+
+  // Render API expects object path, not absolute URL.
+  if (/^https?:\/\//i.test(normalizedPath)) {
     return null;
   }
 
