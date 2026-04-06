@@ -1885,16 +1885,6 @@ export default function Home() {
       return;
     }
 
-    if (window.location.pathname === "/") {
-      window.location.replace("/profile");
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
     setSiteOnlineCount(readCachedSiteOnlineCount());
 
     let isCancelled = false;
