@@ -14,7 +14,7 @@ type ShowcaseSlide = {
   mediaSrc: string;
 };
 
-const repoBasePath = "/sakura.github.io";
+const repoBasePath = "";
 const assetVersion = "20260324-1";
 
 function withRepoBasePath(path: string, bustCache = false) {

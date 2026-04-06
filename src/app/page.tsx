@@ -16,7 +16,7 @@ import { readCachedSiteOnlineCount, writeCachedSiteOnlineCount } from "@/lib/sit
 import { getSupabasePublicObjectUrl, getSupabaseRenderedImageUrl } from "@/lib/supabase";
 import { useLocaleText } from "@/lib/ui-locale";
 
-const repoBasePath = "/sakura.github.io";
+const repoBasePath = "";
 const homeLogoStoragePath = process.env.NEXT_PUBLIC_HOME_LOGO_PATH?.trim() || "";
 const homeLogoSrc =
   getSupabaseRenderedImageUrl(homeLogoStoragePath, {
@@ -573,7 +573,7 @@ function getFirebaseErrorMessage(error: unknown) {
     case "auth/cancelled-popup-request":
       return "The Google sign-in request was canceled.";
     case "auth/unauthorized-domain":
-      return `Domain ${currentHostname} is not listed in Authorized domains in Firebase Auth. Add only the hostname, without https and without /sakura.github.io.`;
+      return `Domain ${currentHostname} is not listed in Authorized domains in Firebase Auth. Add only the hostname without https and without path.`;
     case "auth/account-exists-with-different-credential":
       return "A different sign-in method is already linked to this email.";
     default:
@@ -1879,6 +1879,16 @@ function HeaderAuth() {
 export default function Home() {
   const { t } = useLocaleText();
   const [siteOnlineCount, setSiteOnlineCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (window.location.pathname === "/") {
+      window.location.replace("/profile");
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {

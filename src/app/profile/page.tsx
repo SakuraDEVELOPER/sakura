@@ -167,7 +167,7 @@ const FLOATING_UI_VISIBILITY_EVENT = "sakura-floating-ui-visibility";
 const PROFILE_PATH_STORAGE_KEY = "sakura-profile-path";
 const CURRENT_PROFILE_ID_STORAGE_KEY = "sakura-current-profile-id";
 const PROFILE_BUILD_MARKER = "role-colors-v61";
-const repoBasePath = "/sakura.github.io";
+const repoBasePath = "";
 const PROFILE_THEME_OPTIONS = [
   {
     key: "where-is-my-mind",

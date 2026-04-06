@@ -25,7 +25,7 @@ type ShowcaseSlide = {
   mediaSrc: string;
 };
 
-const repoBasePath = "/sakura.github.io";
+const repoBasePath = "";
 const assetVersion = "20260324-1";
 const homeLogoStoragePath = process.env.NEXT_PUBLIC_HOME_LOGO_PATH?.trim() || "";
 const homeLogoSrc =
@@ -570,7 +570,7 @@ function getFirebaseErrorMessage(error: unknown) {
     case "auth/cancelled-popup-request":
       return "The Google sign-in request was canceled.";
     case "auth/unauthorized-domain":
-      return `Domain ${currentHostname} is not listed in Authorized domains in Firebase Auth. Add only the hostname, without https and without /sakura.github.io.`;
+      return `Domain ${currentHostname} is not listed in Authorized domains in Firebase Auth. Add only the hostname without https and without path.`;
     case "auth/account-exists-with-different-credential":
       return "A different sign-in method is already linked to this email.";
     default:

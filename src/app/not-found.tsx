@@ -1,5 +1,5 @@
 const PROFILE_PATH_STORAGE_KEY = "sakura-profile-path";
-const repoBasePath = "/sakura.github.io";
+const repoBasePath = "";
 const redirectScript = `
   (function () {
     var profilePattern = new RegExp("^" + ${JSON.stringify(repoBasePath)} + "/profile/\\\\d+$");
