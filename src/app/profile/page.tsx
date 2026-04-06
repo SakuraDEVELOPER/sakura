@@ -2317,7 +2317,7 @@ export default function ProfilePage() {
   const subscriptionStatus = hasActiveSubscriptionRole ? "active" : "inactive";
   const subscriptionDescription =
     subscriptionStatus === "active"
-      ? t("Enjoy your access.", "Приятного пользования.")
+      ? t("Sakura Cheat Dota 2", "Sakura Cheat Dota 2")
       : t(
           "Buy a subscription to unlock all cheat features in the game.",
           "Купите подписку, чтобы разблокировать все возможности чита в игре."
