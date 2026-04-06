@@ -593,7 +593,10 @@ const resolveProfileAvatarUrl = (profile: UserProfile | null | undefined) => {
 
   const profileAvatarPath = typeof profile.avatarPath === "string" ? profile.avatarPath.trim() : "";
   if (profileAvatarPath) {
-    return getSupabasePublicObjectUrl(profileAvatarPath);
+    const resolvedAvatarUrl = getSupabasePublicObjectUrl(profileAvatarPath);
+    if (resolvedAvatarUrl) {
+      return resolvedAvatarUrl;
+    }
   }
 
   const profilePhotoUrl = typeof profile.photoURL === "string" ? profile.photoURL.trim() : "";
@@ -610,7 +613,10 @@ const resolveProfileAvatarUrl = (profile: UserProfile | null | undefined) => {
           ? cachedProfileSnapshot.avatarPath.trim()
           : "";
       if (cachedAvatarPath) {
-        return getSupabasePublicObjectUrl(cachedAvatarPath);
+        const resolvedCachedAvatarUrl = getSupabasePublicObjectUrl(cachedAvatarPath);
+        if (resolvedCachedAvatarUrl) {
+          return resolvedCachedAvatarUrl;
+        }
       }
 
       const cachedPhotoUrl =

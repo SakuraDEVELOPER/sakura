@@ -1595,7 +1595,11 @@ const firebaseModuleScript = `
           typeof row?.display_name === "string" ? row.display_name : null,
         profileId: normalizeSupabaseInteger(row?.profile_id),
         photoURL:
-          typeof row?.photo_url === "string" && row.photo_url ? row.photo_url : null,
+          (typeof row?.photo_url === "string" && row.photo_url) ||
+          resolveSupabaseStoragePublicUrl(
+            typeof row?.avatar_path === "string" ? row.avatar_path : null
+          ) ||
+          null,
         avatarPath:
           typeof row?.avatar_path === "string" && row.avatar_path
             ? row.avatar_path

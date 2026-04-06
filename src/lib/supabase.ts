@@ -28,6 +28,17 @@ const encodeStorageObjectPath = (normalizedPath: string) =>
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
+const normalizeBucketObjectPath = (normalizedPath: string) => {
+  let nextPath = normalizedPath;
+  const normalizedBucket = commentMediaBucket.trim().toLowerCase();
+  const lowerPath = nextPath.toLowerCase();
+
+  if (normalizedBucket && lowerPath.startsWith(`${normalizedBucket}/`)) {
+    nextPath = nextPath.slice(commentMediaBucket.length + 1);
+  }
+
+  return nextPath;
+};
 
 export function getSupabasePublicObjectUrl(objectPath: string | null | undefined) {
   const normalizedPath = normalizeStorageObjectPath(objectPath);
@@ -41,7 +52,8 @@ export function getSupabasePublicObjectUrl(objectPath: string | null | undefined
     return normalizedPath;
   }
 
-  const encodedPath = encodeStorageObjectPath(normalizedPath);
+  const bucketNormalizedPath = normalizeBucketObjectPath(normalizedPath);
+  const encodedPath = encodeStorageObjectPath(bucketNormalizedPath);
 
   if (supabasePublicObjectBaseUrl) {
     return `${supabasePublicObjectBaseUrl}/${encodedPath}`;
@@ -53,7 +65,7 @@ export function getSupabasePublicObjectUrl(objectPath: string | null | undefined
 
   const {
     data: { publicUrl },
-  } = supabase.storage.from(supabaseCommentMediaBucket).getPublicUrl(normalizedPath);
+  } = supabase.storage.from(supabaseCommentMediaBucket).getPublicUrl(bucketNormalizedPath);
 
   return publicUrl || null;
 }
@@ -78,7 +90,8 @@ export function getSupabaseRenderedImageUrl(
     return null;
   }
 
-  const encodedPath = encodeStorageObjectPath(normalizedPath);
+  const bucketNormalizedPath = normalizeBucketObjectPath(normalizedPath);
+  const encodedPath = encodeStorageObjectPath(bucketNormalizedPath);
   const renderedUrl = new URL(`${supabaseRenderedImageBaseUrl}/${encodedPath}`);
   const width = Number(options?.width);
   const height = Number(options?.height);
