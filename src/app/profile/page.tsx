@@ -2315,12 +2315,16 @@ export default function ProfilePage() {
   const profileHeadlineStyle = roleHeadlineStyle(topProfileRole);
   const isCurrentAccountBanned = visibleCurrentUser?.isBanned === true;
   const subscriptionStatus = hasActiveSubscriptionRole ? "active" : "inactive";
+  const subscriptionDescription =
+    subscriptionStatus === "active"
+      ? t("Enjoy your access.", "Приятного пользования.")
+      : t(
+          "Buy a subscription to unlock all cheat features in the game.",
+          "Купите подписку, чтобы разблокировать все возможности чита в игре."
+        );
   const subscriptionSummary = {
     status: subscriptionStatus,
-    description: t(
-      "Buy a subscription to unlock all cheat features in the game.",
-      "Купите подписку, чтобы разблокировать все возможности чита в игре."
-    ),
+    description: subscriptionDescription,
   };
   const subscriptionBadgeStyle: CSSProperties =
     subscriptionSummary.status === "active"
