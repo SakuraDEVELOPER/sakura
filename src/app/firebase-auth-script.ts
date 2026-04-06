@@ -117,6 +117,15 @@ const firebaseModuleScript = `
     "forever-young",
     "cyberpunk",
   ]);
+  const EXTERNAL_PROFILE_THEME_KEY_PREFIX = "external:";
+  const EXTERNAL_PROFILE_THEME_MAX_URL_LENGTH = 1200;
+  const EXTERNAL_PROFILE_THEME_PLATFORM_KEYS = new Set([
+    "youtube",
+    "vk",
+    "spotify",
+    "soundcloud",
+    "yandex-music",
+  ]);
   const profileByIdRuntimeCache = new Map();
   const profileByAuthorRuntimeCache = new Map();
   const profilesByPrefixRuntimeCache = new Map();
@@ -567,6 +576,134 @@ const firebaseModuleScript = `
     typeof value === "string"
       ? value.trim().replace(/\\s+/g, " ").slice(0, DISPLAY_NAME_MAX_LENGTH)
       : "";
+  const detectExternalProfileThemePlatformByHostname = (hostname) => {
+    const normalizedHostname =
+      typeof hostname === "string" ? hostname.trim().toLowerCase() : "";
+
+    if (
+      normalizedHostname === "youtube.com" ||
+      normalizedHostname.endsWith(".youtube.com") ||
+      normalizedHostname === "youtu.be"
+    ) {
+      return "youtube";
+    }
+
+    if (
+      normalizedHostname === "vk.com" ||
+      normalizedHostname.endsWith(".vk.com") ||
+      normalizedHostname === "vkvideo.ru" ||
+      normalizedHostname.endsWith(".vkvideo.ru")
+    ) {
+      return "vk";
+    }
+
+    if (
+      normalizedHostname === "open.spotify.com" ||
+      normalizedHostname.endsWith(".spotify.com")
+    ) {
+      return "spotify";
+    }
+
+    if (
+      normalizedHostname === "soundcloud.com" ||
+      normalizedHostname.endsWith(".soundcloud.com") ||
+      normalizedHostname === "snd.sc" ||
+      normalizedHostname === "on.soundcloud.com"
+    ) {
+      return "soundcloud";
+    }
+
+    if (
+      normalizedHostname === "music.yandex.ru" ||
+      normalizedHostname === "music.yandex.com" ||
+      normalizedHostname === "music.yandex.kz"
+    ) {
+      return "yandex-music";
+    }
+
+    return null;
+  };
+  const normalizeExternalProfileThemeSourceUrl = (value) => {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue || trimmedValue.length > EXTERNAL_PROFILE_THEME_MAX_URL_LENGTH) {
+      return null;
+    }
+
+    try {
+      const parsedUrl = new URL(trimmedValue);
+
+      if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+        return null;
+      }
+
+      const platformKey = detectExternalProfileThemePlatformByHostname(parsedUrl.hostname);
+
+      if (!platformKey || !EXTERNAL_PROFILE_THEME_PLATFORM_KEYS.has(platformKey)) {
+        return null;
+      }
+
+      parsedUrl.hash = "";
+      return {
+        platformKey,
+        sourceUrl: parsedUrl.toString(),
+      };
+    } catch (error) {
+      return null;
+    }
+  };
+  const buildExternalProfileThemeSongKey = (source) =>
+    EXTERNAL_PROFILE_THEME_KEY_PREFIX +
+    source.platformKey +
+    ":" +
+    encodeURIComponent(source.sourceUrl);
+  const parseExternalProfileThemeSongKey = (value) => {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue.toLowerCase().startsWith(EXTERNAL_PROFILE_THEME_KEY_PREFIX)) {
+      return null;
+    }
+
+    const payload = trimmedValue.slice(EXTERNAL_PROFILE_THEME_KEY_PREFIX.length);
+    const separatorIndex = payload.indexOf(":");
+
+    if (separatorIndex <= 0) {
+      return null;
+    }
+
+    const platformKey = payload.slice(0, separatorIndex).trim().toLowerCase();
+
+    if (!EXTERNAL_PROFILE_THEME_PLATFORM_KEYS.has(platformKey)) {
+      return null;
+    }
+
+    const encodedSourceUrl = payload.slice(separatorIndex + 1).trim();
+
+    if (!encodedSourceUrl) {
+      return null;
+    }
+
+    try {
+      const decodedSourceUrl = decodeURIComponent(encodedSourceUrl);
+      const normalizedSource = normalizeExternalProfileThemeSourceUrl(decodedSourceUrl);
+
+      if (!normalizedSource || normalizedSource.platformKey !== platformKey) {
+        return null;
+      }
+
+      return normalizedSource;
+    } catch (error) {
+      return null;
+    }
+  };
   const normalizeProfileThemeSongKey = (value) => {
     const normalizedKey =
       typeof value === "string"
@@ -578,11 +715,23 @@ const firebaseModuleScript = `
             .replace(/^-+|-+$/g, "")
         : "";
 
-    if (!normalizedKey) {
-      return null;
+    if (normalizedKey && PROFILE_THEME_SONG_KEYS.has(normalizedKey)) {
+      return normalizedKey;
     }
 
-    return PROFILE_THEME_SONG_KEYS.has(normalizedKey) ? normalizedKey : null;
+    const externalFromStoredKey = parseExternalProfileThemeSongKey(value);
+
+    if (externalFromStoredKey) {
+      return buildExternalProfileThemeSongKey(externalFromStoredKey);
+    }
+
+    const externalFromDirectUrl = normalizeExternalProfileThemeSourceUrl(value);
+
+    if (externalFromDirectUrl) {
+      return buildExternalProfileThemeSongKey(externalFromDirectUrl);
+    }
+
+    return null;
   };
 
   const normalizeLogin = (value) => sanitizeLogin(value).toLocaleLowerCase();

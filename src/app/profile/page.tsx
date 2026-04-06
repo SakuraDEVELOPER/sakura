@@ -168,6 +168,23 @@ const PROFILE_PATH_STORAGE_KEY = "sakura-profile-path";
 const CURRENT_PROFILE_ID_STORAGE_KEY = "sakura-current-profile-id";
 const PROFILE_BUILD_MARKER = "role-colors-v61";
 const repoBasePath = "";
+const EXTERNAL_PROFILE_THEME_KEY_PREFIX = "external:";
+const EXTERNAL_PROFILE_THEME_MAX_URL_LENGTH = 1200;
+const EXTERNAL_PROFILE_THEME_PLATFORM_KEYS = [
+  "youtube",
+  "vk",
+  "spotify",
+  "soundcloud",
+  "yandex-music",
+] as const;
+type ExternalProfileThemePlatformKey = (typeof EXTERNAL_PROFILE_THEME_PLATFORM_KEYS)[number];
+const EXTERNAL_PROFILE_THEME_PLATFORM_LABEL_BY_KEY: Record<ExternalProfileThemePlatformKey, string> = {
+  youtube: "YouTube",
+  vk: "VK",
+  spotify: "Spotify",
+  soundcloud: "SoundCloud",
+  "yandex-music": "Yandex Music",
+};
 const PROFILE_THEME_OPTIONS = [
   {
     key: "where-is-my-mind",
@@ -242,8 +259,264 @@ const restoreProfilePathScript = `
 `;
 
 const getWindowState = () => window as RuntimeWindow;
+type ExternalProfileThemeSource = {
+  platformKey: ExternalProfileThemePlatformKey;
+  sourceUrl: string;
+};
+
+type ResolvedProfileThemeSelection = {
+  normalizedKey: string;
+  title: string;
+  audioSrc: string | null;
+  embedSrc: string | null;
+  sourceUrl: string | null;
+  isExternal: boolean;
+};
+
+const isExternalProfileThemePlatformKey = (
+  value: string
+): value is ExternalProfileThemePlatformKey =>
+  EXTERNAL_PROFILE_THEME_PLATFORM_KEYS.includes(value as ExternalProfileThemePlatformKey);
+
+const detectExternalProfileThemePlatformByHostname = (
+  hostname: string
+): ExternalProfileThemePlatformKey | null => {
+  const normalizedHostname = hostname.trim().toLowerCase();
+
+  if (
+    normalizedHostname === "youtube.com" ||
+    normalizedHostname.endsWith(".youtube.com") ||
+    normalizedHostname === "youtu.be"
+  ) {
+    return "youtube";
+  }
+
+  if (
+    normalizedHostname === "vk.com" ||
+    normalizedHostname.endsWith(".vk.com") ||
+    normalizedHostname === "vkvideo.ru" ||
+    normalizedHostname.endsWith(".vkvideo.ru")
+  ) {
+    return "vk";
+  }
+
+  if (
+    normalizedHostname === "open.spotify.com" ||
+    normalizedHostname.endsWith(".spotify.com")
+  ) {
+    return "spotify";
+  }
+
+  if (
+    normalizedHostname === "soundcloud.com" ||
+    normalizedHostname.endsWith(".soundcloud.com") ||
+    normalizedHostname === "snd.sc" ||
+    normalizedHostname === "on.soundcloud.com"
+  ) {
+    return "soundcloud";
+  }
+
+  if (
+    normalizedHostname === "music.yandex.ru" ||
+    normalizedHostname === "music.yandex.com" ||
+    normalizedHostname === "music.yandex.kz"
+  ) {
+    return "yandex-music";
+  }
+
+  return null;
+};
+
+const normalizeExternalProfileThemeSourceUrl = (
+  value: unknown
+): ExternalProfileThemeSource | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue || trimmedValue.length > EXTERNAL_PROFILE_THEME_MAX_URL_LENGTH) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue);
+
+    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+      return null;
+    }
+
+    const platformKey = detectExternalProfileThemePlatformByHostname(parsedUrl.hostname);
+
+    if (!platformKey) {
+      return null;
+    }
+
+    parsedUrl.hash = "";
+    return {
+      platformKey,
+      sourceUrl: parsedUrl.toString(),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const buildExternalProfileThemeSongKey = (source: ExternalProfileThemeSource): string =>
+  `${EXTERNAL_PROFILE_THEME_KEY_PREFIX}${source.platformKey}:${encodeURIComponent(source.sourceUrl)}`;
+
+const parseExternalProfileThemeSongKey = (value: unknown): ExternalProfileThemeSource | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue.toLowerCase().startsWith(EXTERNAL_PROFILE_THEME_KEY_PREFIX)) {
+    return null;
+  }
+
+  const payload = trimmedValue.slice(EXTERNAL_PROFILE_THEME_KEY_PREFIX.length);
+  const separatorIndex = payload.indexOf(":");
+
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const platformKeyCandidate = payload.slice(0, separatorIndex).trim().toLowerCase();
+
+  if (!isExternalProfileThemePlatformKey(platformKeyCandidate)) {
+    return null;
+  }
+
+  const encodedSourceUrl = payload.slice(separatorIndex + 1).trim();
+
+  if (!encodedSourceUrl) {
+    return null;
+  }
+
+  try {
+    const decodedSourceUrl = decodeURIComponent(encodedSourceUrl);
+    const normalizedSource = normalizeExternalProfileThemeSourceUrl(decodedSourceUrl);
+
+    if (!normalizedSource || normalizedSource.platformKey !== platformKeyCandidate) {
+      return null;
+    }
+
+    return normalizedSource;
+  } catch {
+    return null;
+  }
+};
+
+const extractYouTubeVideoId = (sourceUrl: string): string | null => {
+  try {
+    const parsedUrl = new URL(sourceUrl);
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    if (hostname === "youtu.be") {
+      const shortId = parsedUrl.pathname.split("/").filter(Boolean)[0] ?? "";
+      return /^[A-Za-z0-9_-]{6,}$/.test(shortId) ? shortId : null;
+    }
+
+    if (hostname === "youtube.com" || hostname.endsWith(".youtube.com")) {
+      if (parsedUrl.pathname === "/watch") {
+        const watchId = parsedUrl.searchParams.get("v") ?? "";
+        return /^[A-Za-z0-9_-]{6,}$/.test(watchId) ? watchId : null;
+      }
+
+      const segments = parsedUrl.pathname.split("/").filter(Boolean);
+
+      if (segments[0] === "embed" || segments[0] === "shorts" || segments[0] === "live") {
+        const segmentId = segments[1] ?? "";
+        return /^[A-Za-z0-9_-]{6,}$/.test(segmentId) ? segmentId : null;
+      }
+    }
+  } catch {}
+
+  return null;
+};
+
+const buildExternalProfileThemeEmbedUrl = (source: ExternalProfileThemeSource): string | null => {
+  try {
+    const parsedUrl = new URL(source.sourceUrl);
+
+    if (source.platformKey === "youtube") {
+      const videoId = extractYouTubeVideoId(source.sourceUrl);
+      return videoId
+        ? `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`
+        : null;
+    }
+
+    if (source.platformKey === "spotify") {
+      const pathnameSegments = parsedUrl.pathname.split("/").filter(Boolean);
+      const segments =
+        pathnameSegments[0]?.startsWith("intl-") ? pathnameSegments.slice(1) : pathnameSegments;
+      const contentType = segments[0] ?? "";
+      const contentId = segments[1] ?? "";
+      const supportedContentTypes = new Set(["track", "album", "playlist", "episode", "show"]);
+
+      if (!supportedContentTypes.has(contentType) || !contentId) {
+        return null;
+      }
+
+      return `https://open.spotify.com/embed/${contentType}/${contentId}?utm_source=generator`;
+    }
+
+    if (source.platformKey === "soundcloud") {
+      return `https://w.soundcloud.com/player/?url=${encodeURIComponent(
+        source.sourceUrl
+      )}&auto_play=true`;
+    }
+
+    if (source.platformKey === "yandex-music") {
+      const segments = parsedUrl.pathname.split("/").filter(Boolean);
+      const localeAdjustedSegments =
+        segments[0] && /^[a-z]{2}(?:-[a-z]{2})?$/i.test(segments[0]) ? segments.slice(1) : segments;
+
+      if (localeAdjustedSegments[0] === "album" && localeAdjustedSegments[1]) {
+        const albumId = localeAdjustedSegments[1];
+
+        if (
+          localeAdjustedSegments[2] === "track" &&
+          localeAdjustedSegments[3]
+        ) {
+          const trackId = localeAdjustedSegments[3];
+          return `https://music.yandex.ru/iframe/#track/${trackId}/${albumId}`;
+        }
+
+        return `https://music.yandex.ru/iframe/#album/${albumId}`;
+      }
+
+      return null;
+    }
+
+    if (source.platformKey === "vk") {
+      if (/video_ext\.php$/i.test(parsedUrl.pathname)) {
+        parsedUrl.searchParams.set("autoplay", "1");
+        return parsedUrl.toString();
+      }
+
+      const videoMatch = parsedUrl.pathname.match(/\/video(-?\d+)_(\d+)/i);
+
+      if (!videoMatch) {
+        return null;
+      }
+
+      const embedUrl = new URL("https://vk.com/video_ext.php");
+      embedUrl.searchParams.set("oid", videoMatch[1]);
+      embedUrl.searchParams.set("id", videoMatch[2]);
+      embedUrl.searchParams.set("autoplay", "1");
+      return embedUrl.toString();
+    }
+  } catch {}
+
+  return null;
+};
+
 const normalizeProfileThemeSongKey = (value: unknown): string | null => {
-  const normalizedKey =
+  const normalizedLocalKey =
     typeof value === "string"
       ? value
           .trim()
@@ -253,12 +526,88 @@ const normalizeProfileThemeSongKey = (value: unknown): string | null => {
           .replace(/^-+|-+$/g, "")
       : "";
 
-  if (!normalizedKey) {
+  if (normalizedLocalKey && PROFILE_THEME_BY_KEY.has(normalizedLocalKey)) {
+    return normalizedLocalKey;
+  }
+
+  const externalFromStoredKey = parseExternalProfileThemeSongKey(value);
+
+  if (externalFromStoredKey) {
+    return buildExternalProfileThemeSongKey(externalFromStoredKey);
+  }
+
+  const externalFromDirectUrl = normalizeExternalProfileThemeSourceUrl(value);
+
+  if (externalFromDirectUrl) {
+    return buildExternalProfileThemeSongKey(externalFromDirectUrl);
+  }
+
+  return null;
+};
+
+const resolveProfileThemeSelection = (
+  rawThemeSongKey: unknown,
+  defaultThemeSongKey: string | null
+): ResolvedProfileThemeSelection | null => {
+  const normalizedThemeSongKey =
+    normalizeProfileThemeSongKey(rawThemeSongKey) ??
+    normalizeProfileThemeSongKey(defaultThemeSongKey);
+
+  if (!normalizedThemeSongKey) {
     return null;
   }
 
-  return PROFILE_THEME_BY_KEY.has(normalizedKey) ? normalizedKey : null;
+  const localThemeOption = PROFILE_THEME_BY_KEY.get(normalizedThemeSongKey);
+
+  if (localThemeOption) {
+    return {
+      normalizedKey: normalizedThemeSongKey,
+      title: localThemeOption.title,
+      audioSrc: localThemeOption.src,
+      embedSrc: null,
+      sourceUrl: null,
+      isExternal: false,
+    };
+  }
+
+  const externalThemeSource = parseExternalProfileThemeSongKey(normalizedThemeSongKey);
+
+  if (!externalThemeSource) {
+    return null;
+  }
+
+  const platformLabel = EXTERNAL_PROFILE_THEME_PLATFORM_LABEL_BY_KEY[externalThemeSource.platformKey];
+
+  return {
+    normalizedKey: normalizedThemeSongKey,
+    title: `${platformLabel} Track`,
+    audioSrc: null,
+    embedSrc: buildExternalProfileThemeEmbedUrl(externalThemeSource),
+    sourceUrl: externalThemeSource.sourceUrl,
+    isExternal: true,
+  };
 };
+
+const resolveAdminThemeSongFormValues = (
+  rawThemeSongKey: unknown,
+  profileId: number | null
+): { themeKeyValue: string; externalUrlValue: string } => {
+  const defaultThemeSongKey =
+    typeof profileId === "number"
+      ? PROFILE_THEME_DEFAULT_KEY_BY_PROFILE_ID.get(profileId) ?? ""
+      : "";
+  const normalizedThemeSongKey =
+    normalizeProfileThemeSongKey(rawThemeSongKey) ||
+    normalizeProfileThemeSongKey(defaultThemeSongKey) ||
+    "";
+  const externalThemeSource = parseExternalProfileThemeSongKey(normalizedThemeSongKey);
+
+  return {
+    themeKeyValue: externalThemeSource ? "" : normalizedThemeSongKey,
+    externalUrlValue: externalThemeSource?.sourceUrl ?? "",
+  };
+};
+
 const hasCurrentFirebaseAuthRuntime = (runtime: RuntimeWindow) =>
   Boolean(runtime.sakuraFirebaseAuth) &&
   runtime.sakuraFirebaseRuntimeVersion === FIREBASE_AUTH_RUNTIME_VERSION &&
@@ -1476,6 +1825,7 @@ export default function ProfilePage() {
   const [adminSubscriptionError, setAdminSubscriptionError] = useState<string | null>(null);
   const [adminSubscriptionSuccess, setAdminSubscriptionSuccess] = useState<string | null>(null);
   const [adminThemeSongInput, setAdminThemeSongInput] = useState("");
+  const [adminThemeSongExternalUrlInput, setAdminThemeSongExternalUrlInput] = useState("");
   const [isAdminThemeSongSaving, setIsAdminThemeSongSaving] = useState(false);
   const [adminThemeSongError, setAdminThemeSongError] = useState<string | null>(null);
   const [adminThemeSongSuccess, setAdminThemeSongSuccess] = useState<string | null>(null);
@@ -2174,23 +2524,33 @@ export default function ProfilePage() {
       : activeProfile?.presence ?? null;
   const profileThemeProfileId =
     typeof activeProfile?.profileId === "number" ? activeProfile.profileId : null;
-  const profileThemeStoredSongKey = normalizeProfileThemeSongKey(activeProfile?.themeSongKey);
   const profileThemeDefaultSongKey =
     typeof profileThemeProfileId === "number"
       ? PROFILE_THEME_DEFAULT_KEY_BY_PROFILE_ID.get(profileThemeProfileId) ?? null
       : null;
-  const profileThemeResolvedSongKey = profileThemeStoredSongKey ?? profileThemeDefaultSongKey;
-  const profileThemeSelection = profileThemeResolvedSongKey
-    ? PROFILE_THEME_BY_KEY.get(profileThemeResolvedSongKey) ?? null
-    : null;
+  const profileThemeSelection =
+    typeof profileThemeProfileId === "number"
+      ? resolveProfileThemeSelection(activeProfile?.themeSongKey, profileThemeDefaultSongKey)
+      : null;
   const profileThemeSongSrc =
-    typeof profileThemeProfileId === "number" ? profileThemeSelection?.src ?? null : null;
+    typeof profileThemeProfileId === "number" ? profileThemeSelection?.audioSrc ?? null : null;
+  const profileThemeEmbedSrc =
+    typeof profileThemeProfileId === "number" ? profileThemeSelection?.embedSrc ?? null : null;
+  const profileThemeSourceUrl =
+    typeof profileThemeProfileId === "number" ? profileThemeSelection?.sourceUrl ?? null : null;
+  const isProfileThemeExternal = Boolean(profileThemeSelection?.isExternal);
   const profileThemeTitle = profileThemeSelection?.title ?? null;
   const profileThemeSongKey =
-    profileThemeProfileId && profileThemeResolvedSongKey
-      ? `${profileThemeProfileId}:${profileThemeResolvedSongKey}`
+    profileThemeProfileId && profileThemeSelection?.normalizedKey
+      ? `${profileThemeProfileId}:${profileThemeSelection.normalizedKey}`
       : null;
-  const shouldPlayProfileThemeSong = Boolean(profileThemeSongSrc);
+  const shouldPlayProfileThemeSong = Boolean(profileThemeSongSrc || profileThemeEmbedSrc);
+  const shouldPlayProfileThemeAudio = Boolean(profileThemeSongSrc);
+  const profileThemeStatusLabel = isProfileThemeExternal
+    ? "External"
+    : profileThemeIsPlaying
+      ? "Playing"
+      : "Paused";
 
   useEffect(() => {
     const audio = profileThemeAudioRef.current;
@@ -2201,7 +2561,7 @@ export default function ProfilePage() {
 
     audio.loop = true;
 
-    if (!shouldPlayProfileThemeSong) {
+    if (!shouldPlayProfileThemeAudio) {
       audio.pause();
       audio.currentTime = 0;
       setProfileThemeIsPlaying(false);
@@ -2226,7 +2586,7 @@ export default function ProfilePage() {
       setProfileThemeCurrentTime(0);
       setProfileThemeDuration(0);
     };
-  }, [profileThemeSongKey, profileThemeSongSrc, shouldPlayProfileThemeSong]);
+  }, [profileThemeSongKey, profileThemeSongSrc, shouldPlayProfileThemeAudio]);
 
   useEffect(() => {
     const audio = profileThemeAudioRef.current;
@@ -3368,6 +3728,7 @@ export default function ProfilePage() {
       setAdminSubscriptionError(null);
       setAdminSubscriptionSuccess(null);
       setAdminThemeSongInput("");
+      setAdminThemeSongExternalUrlInput("");
       setAdminThemeSongError(null);
       setAdminThemeSongSuccess(null);
       setDeleteAccountError(null);
@@ -3415,12 +3776,12 @@ export default function ProfilePage() {
     setAdminPasswordResetSuccess(null);
     setAdminSubscriptionError(null);
     setAdminSubscriptionSuccess(null);
-    setAdminThemeSongInput(
-      normalizeProfileThemeSongKey(activeProfile.themeSongKey) ??
-        (typeof activeProfile.profileId === "number"
-          ? PROFILE_THEME_DEFAULT_KEY_BY_PROFILE_ID.get(activeProfile.profileId) ?? ""
-          : "")
+    const adminThemeSongFormValues = resolveAdminThemeSongFormValues(
+      activeProfile.themeSongKey,
+      typeof activeProfile.profileId === "number" ? activeProfile.profileId : null
     );
+    setAdminThemeSongInput(adminThemeSongFormValues.themeKeyValue);
+    setAdminThemeSongExternalUrlInput(adminThemeSongFormValues.externalUrlValue);
     setAdminThemeSongError(null);
     setAdminThemeSongSuccess(null);
     setDeleteAccountError(null);
@@ -4666,9 +5027,24 @@ export default function ProfilePage() {
       return;
     }
 
-    const normalizedThemeSongKey = normalizeProfileThemeSongKey(adminThemeSongInput);
+    const hasExternalThemeUrlInput = Boolean(adminThemeSongExternalUrlInput.trim());
+    const normalizedExternalThemeSongKey = hasExternalThemeUrlInput
+      ? normalizeProfileThemeSongKey(adminThemeSongExternalUrlInput)
+      : null;
+    const normalizedPresetThemeSongKey = normalizeProfileThemeSongKey(adminThemeSongInput);
+    const normalizedThemeSongKey = hasExternalThemeUrlInput
+      ? normalizedExternalThemeSongKey
+      : normalizedPresetThemeSongKey;
 
-    if (adminThemeSongInput.trim() && !normalizedThemeSongKey) {
+    if (hasExternalThemeUrlInput && !normalizedExternalThemeSongKey) {
+      setAdminThemeSongError(
+        "Enter a valid YouTube, VK, Spotify, SoundCloud, or Yandex Music link."
+      );
+      setAdminThemeSongSuccess(null);
+      return;
+    }
+
+    if (!hasExternalThemeUrlInput && adminThemeSongInput.trim() && !normalizedPresetThemeSongKey) {
       setAdminThemeSongError("Select a valid profile track.");
       setAdminThemeSongSuccess(null);
       return;
@@ -4685,12 +5061,12 @@ export default function ProfilePage() {
       );
 
       applyUpdatedProfileSnapshot(snapshot);
-      setAdminThemeSongInput(
-        normalizeProfileThemeSongKey(snapshot?.themeSongKey) ??
-          (typeof activeProfile.profileId === "number"
-            ? PROFILE_THEME_DEFAULT_KEY_BY_PROFILE_ID.get(activeProfile.profileId) ?? ""
-            : "")
+      const adminThemeSongFormValues = resolveAdminThemeSongFormValues(
+        snapshot?.themeSongKey,
+        typeof activeProfile.profileId === "number" ? activeProfile.profileId : null
       );
+      setAdminThemeSongInput(adminThemeSongFormValues.themeKeyValue);
+      setAdminThemeSongExternalUrlInput(adminThemeSongFormValues.externalUrlValue);
       setAdminThemeSongSuccess(
         normalizedThemeSongKey ? "Profile music updated." : "Profile music reset to default."
       );
@@ -5179,9 +5555,16 @@ export default function ProfilePage() {
   };
 
   const handleProfileThemeToggle = async () => {
+    if (isProfileThemeExternal) {
+      if (profileThemeSourceUrl) {
+        window.open(profileThemeSourceUrl, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
     const audio = profileThemeAudioRef.current;
 
-    if (!audio || !shouldPlayProfileThemeSong) {
+    if (!audio || !shouldPlayProfileThemeAudio) {
       return;
     }
 
@@ -6036,72 +6419,102 @@ export default function ProfilePage() {
                     </div>
                     <span
                       className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${
-                        profileThemeIsPlaying
+                        isProfileThemeExternal || profileThemeIsPlaying
                           ? "border-[#ffb7c5]/40 bg-[#1b1015] text-[#ffb7c5] shadow-[0_0_16px_rgba(255,183,197,0.16)]"
                           : "border-[#2d2d2d] bg-[#111111] text-gray-400"
                       }`}
                     >
-                      {profileThemeIsPlaying ? "Playing" : "Paused"}
+                      {profileThemeStatusLabel}
                     </span>
                   </div>
-                  <div className="mt-4 rounded-[20px] border border-[#2a181d] bg-[linear-gradient(180deg,rgba(18,11,14,0.96)_0%,rgba(11,11,12,0.96)_100%)] p-3 shadow-[inset_0_1px_0_rgba(255,183,197,0.04)]">
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleProfileThemeToggle();
-                        }}
-                        aria-label={profileThemeIsPlaying ? "Pause music" : "Play music"}
-                        className={`inline-flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full border transition ${
-                          profileThemeIsPlaying
-                            ? "border-[#ffb7c5]/45 bg-[#ffb7c5] text-black shadow-[0_0_22px_rgba(255,183,197,0.22)] hover:bg-[#ffc8d3]"
-                            : "border-[#ffb7c5]/35 bg-[linear-gradient(180deg,#241118_0%,#140d11_100%)] text-[#ffb7c5] shadow-[0_0_18px_rgba(255,183,197,0.16)] hover:border-[#ffb7c5]/60 hover:text-white"
-                        }`}
-                      >
-                        <MusicGlyph playing={profileThemeIsPlaying} />
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-gray-400">
-                          <span>{formatAudioClock(profileThemeCurrentTime)}</span>
-                          <span>{formatAudioClock(profileThemeDuration)}</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={profileThemeDuration > 0 ? profileThemeDuration : 0}
-                          step={0.1}
-                          value={Math.min(profileThemeCurrentTime, profileThemeDuration || profileThemeCurrentTime)}
-                          onChange={handleProfileThemeSeek}
-                          disabled={profileThemeDuration <= 0}
-                          style={buildMusicSliderStyle(
-                            Math.min(profileThemeCurrentTime, profileThemeDuration || profileThemeCurrentTime),
-                            profileThemeDuration > 0 ? profileThemeDuration : 1
-                          )}
-                          className={`mt-2 ${musicSliderClassName}`}
+                  {isProfileThemeExternal ? (
+                    <div className="mt-4 rounded-[20px] border border-[#2a181d] bg-[linear-gradient(180deg,rgba(18,11,14,0.96)_0%,rgba(11,11,12,0.96)_100%)] p-3 shadow-[inset_0_1px_0_rgba(255,183,197,0.04)]">
+                      {profileThemeEmbedSrc ? (
+                        <iframe
+                          src={profileThemeEmbedSrc}
+                          title={profileThemeTitle ?? "Profile theme embed"}
+                          loading="lazy"
+                          allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                          className="h-40 w-full rounded-xl border border-[#2c171e] bg-black"
                         />
+                      ) : (
+                        <p className="text-xs leading-relaxed text-gray-400">
+                          Embed preview is unavailable for this link format.
+                        </p>
+                      )}
+                      {profileThemeSourceUrl ? (
+                        <a
+                          href={profileThemeSourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-3 inline-flex items-center rounded-full border border-[#3a2a31] bg-[#140d11] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#ffb7c5] transition hover:border-[#ffb7c5]/45 hover:text-white"
+                        >
+                          Open Source
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-4 rounded-[20px] border border-[#2a181d] bg-[linear-gradient(180deg,rgba(18,11,14,0.96)_0%,rgba(11,11,12,0.96)_100%)] p-3 shadow-[inset_0_1px_0_rgba(255,183,197,0.04)]">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleProfileThemeToggle();
+                            }}
+                            aria-label={profileThemeIsPlaying ? "Pause music" : "Play music"}
+                            className={`inline-flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full border transition ${
+                              profileThemeIsPlaying
+                                ? "border-[#ffb7c5]/45 bg-[#ffb7c5] text-black shadow-[0_0_22px_rgba(255,183,197,0.22)] hover:bg-[#ffc8d3]"
+                                : "border-[#ffb7c5]/35 bg-[linear-gradient(180deg,#241118_0%,#140d11_100%)] text-[#ffb7c5] shadow-[0_0_18px_rgba(255,183,197,0.16)] hover:border-[#ffb7c5]/60 hover:text-white"
+                            }`}
+                          >
+                            <MusicGlyph playing={profileThemeIsPlaying} />
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-gray-400">
+                              <span>{formatAudioClock(profileThemeCurrentTime)}</span>
+                              <span>{formatAudioClock(profileThemeDuration)}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={profileThemeDuration > 0 ? profileThemeDuration : 0}
+                              step={0.1}
+                              value={Math.min(profileThemeCurrentTime, profileThemeDuration || profileThemeCurrentTime)}
+                              onChange={handleProfileThemeSeek}
+                              disabled={profileThemeDuration <= 0}
+                              style={buildMusicSliderStyle(
+                                Math.min(profileThemeCurrentTime, profileThemeDuration || profileThemeCurrentTime),
+                                profileThemeDuration > 0 ? profileThemeDuration : 1
+                              )}
+                              className={`mt-2 ${musicSliderClassName}`}
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 rounded-[18px] border border-[#26151a] bg-[linear-gradient(180deg,rgba(16,10,13,0.94)_0%,rgba(10,10,11,0.94)_100%)] px-3 py-2.5">
-                    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
-                      <span className="font-mono text-[10px] uppercase tracking-[0.26em] text-[#ffb7c5]">
-                        Volume
-                      </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={profileThemeVolume}
-                        onChange={handleProfileThemeVolumeChange}
-                        style={buildMusicSliderStyle(profileThemeVolume, 1)}
-                        className={musicSliderClassName}
-                      />
-                      <span className="w-10 shrink-0 text-right text-[10px] font-medium text-gray-400">
-                        {Math.round(profileThemeVolume * 100)}%
-                      </span>
-                    </div>
-                  </div>
+                      <div className="mt-3 rounded-[18px] border border-[#26151a] bg-[linear-gradient(180deg,rgba(16,10,13,0.94)_0%,rgba(10,10,11,0.94)_100%)] px-3 py-2.5">
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.26em] text-[#ffb7c5]">
+                            Volume
+                          </span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={profileThemeVolume}
+                            onChange={handleProfileThemeVolumeChange}
+                            style={buildMusicSliderStyle(profileThemeVolume, 1)}
+                            className={musicSliderClassName}
+                          />
+                          <span className="w-10 shrink-0 text-right text-[10px] font-medium text-gray-400">
+                            {Math.round(profileThemeVolume * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : null}
               <button
@@ -6116,7 +6529,9 @@ export default function ProfilePage() {
               >
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    profileThemeIsPlaying ? "bg-[#ff7da0] shadow-[0_0_14px_rgba(255,125,160,0.9)]" : "bg-current/60"
+                    isProfileThemeExternal || profileThemeIsPlaying
+                      ? "bg-[#ff7da0] shadow-[0_0_14px_rgba(255,125,160,0.9)]"
+                      : "bg-current/60"
                   }`}
                 />
                 Music
@@ -6468,6 +6883,25 @@ export default function ProfilePage() {
                             </option>
                           ))}
                         </select>
+                      </label>
+                      <label className="mt-3 block">
+                        <span className="mb-2 block text-xs text-gray-500">
+                          {t(
+                            "Or paste a platform link (YouTube, VK, Spotify, SoundCloud, Yandex Music)",
+                            "Или вставьте ссылку на платформу (YouTube, VK, Spotify, SoundCloud, Yandex Music)"
+                          )}
+                        </span>
+                        <input
+                          type="url"
+                          value={adminThemeSongExternalUrlInput}
+                          onChange={(event) => {
+                            setAdminThemeSongExternalUrlInput(event.target.value);
+                            setAdminThemeSongError(null);
+                            setAdminThemeSongSuccess(null);
+                          }}
+                          placeholder="https://..."
+                          className="w-full rounded-2xl border border-[#232323] bg-[#090909] px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-[#ffb7c5]/55"
+                        />
                       </label>
                       <div className="mt-4 flex flex-wrap items-center gap-3">
                         <button
